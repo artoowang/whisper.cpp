@@ -312,6 +312,23 @@ int main(int argc, char **argv)
         res.set_content(reinterpret_cast<const char*>(&completion_js), completion_js_len, "application/javascript");
         return false; });
 
+    // Process the speech audio date and returns text.
+    // Example curl command:
+    // curl --request POST -F "speech=@filename.wav" http://localhost:8080/speech_to_text
+    svr.Post("/speech_to_text", [](const Request &request, Response &response)
+            {
+                constexpr char *kSpeechFileName = "speech";
+                if (!request.has_file(kSpeechFileName)) {
+                    response.set_content("Cannot find speech file in the multipart data.\n", "text/plain");
+                    return;
+                }
+
+                const MultipartFormData speech_data = request.get_file_value(kSpeechFileName);
+                fprintf(stderr, "Received speech file: %s, %zd bytes\n",
+                    speech_data.content_type.c_str(), speech_data.content.length());
+                response.set_content("{'result': 0}", "application/json");
+            });
+
     svr.Options(R"(/.*)", [](const Request &, Response &res)
                 { return res.set_content("", "application/json"); });
 
