@@ -1,3 +1,5 @@
+#include <optional>
+
 #include "common.h"
 #include "whisper.h"
 
@@ -467,6 +469,98 @@ void ReleaseWhisper(whisper_context* ctx) {
     whisper_free(ctx);
 }
 
+std::optional<std::string> ProcessAudio(
+        whisper_context* ctx, whisper_params params,
+        const std::string& audio_data) {
+    // print system information
+    fprintf(stderr, "\n");
+    fprintf(stderr, "system_info: n_threads = %d / %d | %s\n",
+            params.n_threads*params.n_processors, std::thread::hardware_concurrency(), whisper_print_system_info());
+
+    // print some info about the processing
+    fprintf(stderr, "\n");
+    if (!whisper_is_multilingual(ctx)) {
+        if (params.language != "en" || params.translate) {
+            params.language = "en";
+            params.translate = false;
+            fprintf(stderr, "%s: WARNING: model is not multilingual, ignoring language and translation options\n", __func__);
+        }
+    }
+    if (params.detect_language) {
+        params.language = "auto";
+    }
+
+    // TODO: Assuming mono 32-bit audio for now.
+    const float *audio_samples = reinterpret_cast<const float*>(audio_data.data());
+    const int num_samples = static_cast<int>(audio_data.length() / sizeof(float));
+
+    fprintf(stderr, "%s: processing %zd bytes (%d samples, %.1f sec), %d threads, %d processors, lang = %s, task = %s, %s%s ...\n",
+            __func__, audio_data.length(), num_samples, static_cast<float>(num_samples) / WHISPER_SAMPLE_RATE,
+            params.n_threads, params.n_processors,
+            params.language.c_str(),
+            params.translate ? "translate" : "transcribe",
+            params.tinydiarize ? "tdrz = 1, " : "",
+            params.no_timestamps ? "no timestamps" : "with timestamps");
+    fprintf(stderr, "\n");
+
+    // run the inference
+    whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+
+    wparams.strategy = params.beam_size > 1 ? WHISPER_SAMPLING_BEAM_SEARCH : WHISPER_SAMPLING_GREEDY;
+
+    wparams.print_realtime   = false;
+    wparams.print_progress   = params.print_progress;
+    wparams.print_timestamps = !params.no_timestamps;
+    wparams.print_special    = params.print_special;
+    wparams.translate        = params.translate;
+    wparams.language         = params.language.c_str();
+    wparams.detect_language  = params.detect_language;
+    wparams.n_threads        = params.n_threads;
+    wparams.n_max_text_ctx   = params.max_context >= 0 ? params.max_context : wparams.n_max_text_ctx;
+    wparams.offset_ms        = params.offset_t_ms;
+    wparams.duration_ms      = params.duration_ms;
+
+    wparams.token_timestamps = params.output_wts || params.max_len > 0;
+    wparams.thold_pt         = params.word_thold;
+    wparams.max_len          = params.output_wts && params.max_len == 0 ? 60 : params.max_len;
+    wparams.split_on_word    = params.split_on_word;
+
+    wparams.speed_up         = params.speed_up;
+
+    wparams.tdrz_enable      = params.tinydiarize; // [TDRZ]
+
+    wparams.initial_prompt   = params.prompt.c_str();
+
+    wparams.greedy.best_of        = params.best_of;
+    wparams.beam_search.beam_size = params.beam_size;
+
+    wparams.temperature_inc  = params.no_fallback ? 0.0f : wparams.temperature_inc;
+    wparams.entropy_thold    = params.entropy_thold;
+    wparams.logprob_thold    = params.logprob_thold;
+
+    // example for abort mechanism
+    // in this example, we do not abort the processing, but we could if the flag is set to true
+    // the callback is called before every encoder run - if it returns false, the processing is aborted
+    {
+        static bool is_aborted = false; // NOTE: this should be atomic to avoid data race
+
+        wparams.encoder_begin_callback = [](struct whisper_context * /*ctx*/, struct whisper_state * /*state*/, void * user_data) {
+            bool is_aborted = *(bool*)user_data;
+            return !is_aborted;
+        };
+        wparams.encoder_begin_callback_user_data = &is_aborted;
+    }
+
+    if (whisper_full_parallel(ctx, wparams, audio_samples, num_samples, params.n_processors) != 0) {
+        fprintf(stderr, "failed to process audio\n");
+        return std::nullopt;
+    }
+
+    // TODO
+
+    return std::nullopt;
+}
+
 // -----------------------------------------------------------------------------
 
 int main(int argc, char **argv)
@@ -520,7 +614,7 @@ int main(int argc, char **argv)
     // Process the speech audio date and returns text.
     // Example curl command:
     // curl --request POST -F "speech=@filename.wav" http://localhost:8080/speech_to_text
-    svr.Post("/speech_to_text", [](const Request &request, Response &response)
+    svr.Post("/speech_to_text", [&](const Request &request, Response &response)
             {
                 constexpr char *kSpeechFileName = "speech";
                 if (!request.has_file(kSpeechFileName)) {
@@ -531,6 +625,9 @@ int main(int argc, char **argv)
                 const MultipartFormData speech_data = request.get_file_value(kSpeechFileName);
                 fprintf(stderr, "Received speech file: %s, %zd bytes\n",
                     speech_data.content_type.c_str(), speech_data.content.length());
+
+                ProcessAudio(whisper_ctx, wparams, speech_data.content);
+
                 response.set_content("{'result': 0}", "application/json");
             });
 
