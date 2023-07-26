@@ -472,6 +472,12 @@ void ReleaseWhisper(whisper_context* ctx) {
 std::optional<std::string> ProcessAudio(
         whisper_context* ctx, whisper_params params,
         const std::string& audio_data) {
+    std::vector<float> pcmf32;               // mono-channel F32 PCM
+    if (!::read_wav(audio_data, pcmf32)) {
+        fprintf(stderr, "error: failed to read WAV data (%zd bytes)\n", audio_data.size());
+        return std::nullopt;
+    }
+
     // print system information
     fprintf(stderr, "\n");
     fprintf(stderr, "system_info: n_threads = %d / %d | %s\n",
@@ -490,12 +496,8 @@ std::optional<std::string> ProcessAudio(
         params.language = "auto";
     }
 
-    // TODO: Assuming mono 32-bit audio for now.
-    const float *audio_samples = reinterpret_cast<const float*>(audio_data.data());
-    const int num_samples = static_cast<int>(audio_data.length() / sizeof(float));
-
-    fprintf(stderr, "%s: processing %zd bytes (%d samples, %.1f sec), %d threads, %d processors, lang = %s, task = %s, %s%s ...\n",
-            __func__, audio_data.length(), num_samples, static_cast<float>(num_samples) / WHISPER_SAMPLE_RATE,
+    fprintf(stderr, "%s: processing %d samples (%.1f sec), %d threads, %d processors, lang = %s, task = %s, %s%s ...\n",
+            __func__, int(pcmf32.size()), float(pcmf32.size())/WHISPER_SAMPLE_RATE,
             params.n_threads, params.n_processors,
             params.language.c_str(),
             params.translate ? "translate" : "transcribe",
@@ -551,7 +553,7 @@ std::optional<std::string> ProcessAudio(
         wparams.encoder_begin_callback_user_data = &is_aborted;
     }
 
-    if (whisper_full_parallel(ctx, wparams, audio_samples, num_samples, params.n_processors) != 0) {
+    if (whisper_full_parallel(ctx, wparams, pcmf32.data(), static_cast<int>(pcmf32.size()), params.n_processors) != 0) {
         fprintf(stderr, "failed to process audio\n");
         return std::nullopt;
     }

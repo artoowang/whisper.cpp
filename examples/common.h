@@ -137,6 +137,10 @@ bool read_wav(
         std::vector<std::vector<float>> & pcmf32s,
         bool stereo);
 
+// Read WAV audio data and store the PCM data into pcmf32
+// The audio must be mono, and sample rate of the audio must be equal to COMMON_SAMPLE_RATE
+bool read_wav(const std::string& wav_data, std::vector<float>& pcmf32);
+
 // Apply a high-pass frequency filter to PCM audio
 // Suppresses frequencies below cutoff Hz
 void high_pass_filter(

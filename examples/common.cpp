@@ -681,6 +681,45 @@ bool read_wav(const std::string & fname, std::vector<float>& pcmf32, std::vector
     return true;
 }
 
+bool read_wav(const std::string& wav_data, std::vector<float>& pcmf32) {
+    drwav wav;
+
+    if (drwav_init_memory(&wav, wav_data.data(), wav_data.size(), nullptr) == false) {
+        fprintf(stderr, "error: failed to open WAV from given data (%zd bytes)\n", wav_data.size());
+        return false;
+    }
+
+    if (wav.channels != 1) {
+        fprintf(stderr, "%s: WAV must be mono\n", __func__);
+        return false;
+    }
+
+    if (wav.sampleRate != COMMON_SAMPLE_RATE) {
+        fprintf(stderr, "%s: WAV must be %i kHz\n", __func__, COMMON_SAMPLE_RATE/1000);
+        return false;
+    }
+
+    if (wav.bitsPerSample != 16) {
+        fprintf(stderr, "%s: WAV must be 16-bit\n", __func__);
+        return false;
+    }
+
+    const uint64_t n = wav_data.empty() ? wav.totalPCMFrameCount : wav_data.size()/(wav.channels*wav.bitsPerSample/8);
+
+    std::vector<int16_t> pcm16;
+    pcm16.resize(n*wav.channels);
+    drwav_read_pcm_frames_s16(&wav, n, pcm16.data());
+    drwav_uninit(&wav);
+
+    // convert to mono, float
+    pcmf32.resize(n);
+    for (uint64_t i = 0; i < n; i++) {
+        pcmf32[i] = float(pcm16[i])/32768.0f;
+    }
+
+    return true;
+}
+
 void high_pass_filter(std::vector<float> & data, float cutoff, float sample_rate) {
     const float rc = 1.0f / (2.0f * M_PI * cutoff);
     const float dt = 1.0f / sample_rate;
