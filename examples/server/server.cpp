@@ -558,9 +558,33 @@ std::optional<std::string> ProcessAudio(
         return std::nullopt;
     }
 
-    // TODO
+    std::string output;
+    const int n_segments = whisper_full_n_segments(ctx);
+    for (int i = 0; i < n_segments; ++i) {
+        output += whisper_full_get_segment_text(ctx, i);
+    }
+    return output;
+}
 
-    return std::nullopt;
+// This is copied from main.cpp. Not sure if this is sufficient for all JSON
+// strings.
+std::string EscapeDoubleQuotesAndBackslashes(const std::string& str) {
+    size_t escaped_length = str.length();
+    for (const char c : str) {
+        if (c == '"' || c == '\\') {
+            escaped_length++;
+        }
+    }
+
+    std::string escaped(escaped_length, '\0');
+    size_t pos = 0;
+    for (const char c : str) {
+        if (c == '"' || c == '\\') {
+            escaped[pos++] = '\\';
+        }
+        escaped[pos++] = c;
+    }
+    return escaped;
 }
 
 // -----------------------------------------------------------------------------
@@ -628,9 +652,12 @@ int main(int argc, char **argv)
                 fprintf(stderr, "Received speech file: %s, %zd bytes\n",
                     speech_data.content_type.c_str(), speech_data.content.length());
 
-                ProcessAudio(whisper_ctx, wparams, speech_data.content);
-
-                response.set_content("{'result': 0}", "application/json");
+                std::optional<std::string> result = ProcessAudio(whisper_ctx, wparams, speech_data.content);
+                if (result.has_value()) {
+                    response.set_content("{'result': 1, 'text': '" + EscapeDoubleQuotesAndBackslashes(result.value()) + "'}\n", "application/json");
+                } else {
+                    response.set_content("{'result': 0}\n", "application/json");
+                }
             });
 
     svr.Options(R"(/.*)", [](const Request &, Response &res)
