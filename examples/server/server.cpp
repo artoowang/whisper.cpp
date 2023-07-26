@@ -295,9 +295,10 @@ static void server_params_parse(int argc, char **argv, server_params &sparams,
         }
         else
         {
-            fprintf(stderr, "error: unknown argument: %s\n", arg.c_str());
-            server_print_usage(argv[0], default_params, default_sparams);
-            exit(1);
+            // TODO: Need to combine this with whisper_params_parse(). For now, just ignore argument that are not recognizable.
+            fprintf(stderr, "error: unknown server argument: %s\n", arg.c_str());
+            // server_print_usage(argv[0], default_params, default_sparams);
+            // exit(1);
         }
     }
 
@@ -431,9 +432,10 @@ bool whisper_params_parse(int argc, char ** argv, whisper_params & params) {
         else if (arg == "-f"    || arg == "--file")            { params.fname_inp.emplace_back(argv[++i]); }
         else if (arg == "-oved" || arg == "--ov-e-device")     { params.openvino_encode_device = argv[++i]; }
         else {
-            fprintf(stderr, "error: unknown argument: %s\n", arg.c_str());
-            whisper_print_usage(argc, argv, params);
-            exit(0);
+            // TODO: Need to combine this with server_params_parse(). For now, just ignore argument that are not recognizable.
+            fprintf(stderr, "error: unknown whisper argument: %s\n", arg.c_str());
+            // whisper_print_usage(argc, argv, params);
+            // exit(0);
         }
     }
 
